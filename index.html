@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ROF GUI</title>
+    <script src="/coi-serviceworker.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            color: #333;
+        }
+
+        .drop-zone {
+            border: 3px dashed #ccc;
+            border-radius: 10px;
+            padding: 60px 40px;
+            text-align: center;
+            background: white;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .drop-zone:hover {
+            border-color: #666;
+            background: #fafafa;
+        }
+
+        .drop-zone.drag-over {
+            border-color: #4CAF50;
+            background: #e8f5e9;
+        }
+
+        .drop-zone-text {
+            font-size: 18px;
+            color: #666;
+            margin-bottom: 10px;
+        }
+
+        .drop-zone-subtext {
+            font-size: 14px;
+            color: #999;
+        }
+
+        #fileInput {
+            display: none;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            margin-top: 20px;
+            padding: 20px;
+            background: white;
+            border-radius: 10px;
+        }
+
+        .loading.active {
+            display: block;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #4CAF50;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .results {
+            display: none;
+            margin-top: 20px;
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+        }
+
+        .results.active {
+            display: block;
+        }
+
+        .file-info {
+            margin-bottom: 20px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #eee;
+        }
+
+        .file-info h2 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 20px;
+        }
+
+        .file-info p {
+            color: #666;
+            margin: 5px 0;
+        }
+
+        .stream {
+            background: #f9f9f9;
+            border-left: 4px solid #4CAF50;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+
+        .stream h3 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 16px;
+        }
+
+        .stream-detail {
+            color: #666;
+            font-size: 14px;
+            margin: 5px 0;
+            font-family: monospace;
+        }
+
+        .error {
+            background: #ffebee;
+            color: #c62828;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 20px;
+            display: none;
+        }
+
+        .error.active {
+            display: block;
+        }
+
+        .reset-button {
+            margin-top: 20px;
+            padding: 10px 20px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        .reset-button:hover {
+            background: #45a049;
+        }
+
+        .rof-controls {
+            background: white;
+            border-radius: 10px;
+            margin-top: 20px;
+            margin-bottom: 20px;
+            overflow: hidden;
+        }
+
+        .rof-controls-header {
+            padding: 15px 20px;
+            background: #f9f9f9;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #eee;
+            user-select: none;
+        }
+
+        .rof-controls-header:hover {
+            background: #f0f0f0;
+        }
+
+        .rof-controls-header h3 {
+            margin: 0;
+            color: #333;
+            font-size: 16px;
+        }
+
+        .rof-controls-toggle {
+            color: #666;
+            font-size: 20px;
+            transition: transform 0.3s ease;
+        }
+
+        .rof-controls-toggle.expanded {
+            transform: rotate(180deg);
+        }
+
+        .rof-controls-content {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease;
+        }
+
+        .rof-controls-content.expanded {
+            max-height: 600px;
+        }
+
+        .rof-controls-inner {
+            padding: 20px;
+        }
+
+        .control-group {
+            margin-bottom: 15px;
+        }
+
+        .control-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: #666;
+            font-size: 13px;
+        }
+
+        .control-group input[type="number"] {
+            width: 100%;
+            padding: 8px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+
+        .control-group small {
+            display: block;
+            margin-top: 3px;
+            color: #999;
+            font-size: 11px;
+        }
+
+        .rof-results {
+            display: none;
+            margin-top: 20px;
+        }
+
+        .rof-results.active {
+            display: block;
+        }
+
+        .rof-summary {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+
+        .rof-summary h2 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 20px;
+        }
+
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .summary-item {
+            background: #f9f9f9;
+            padding: 15px;
+            border-radius: 5px;
+            border-left: 4px solid #4CAF50;
+        }
+
+        .summary-label {
+            display: block;
+            color: #666;
+            font-size: 13px;
+            margin-bottom: 5px;
+        }
+
+        .summary-value {
+            display: block;
+            color: #333;
+            font-size: 24px;
+            font-weight: bold;
+        }
+
+        .file-details {
+            padding-top: 15px;
+            border-top: 2px solid #eee;
+        }
+
+        .file-details p {
+            color: #666;
+            margin: 5px 0;
+        }
+
+        .rof-bursts {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+
+        .rof-bursts h3 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 18px;
+        }
+
+        .burst-card {
+            background: #f9f9f9;
+            border-left: 4px solid #4CAF50;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-radius: 5px;
+        }
+
+        .burst-card h4 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 16px;
+        }
+
+        .burst-details {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+        }
+
+        .burst-details p {
+            color: #666;
+            font-size: 13px;
+            margin: 0;
+        }
+
+        .no-bursts {
+            color: #999;
+            text-align: center;
+            padding: 20px;
+            font-style: italic;
+        }
+
+        .visualization {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+
+        .visualization h3 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 18px;
+        }
+
+        #rofPlot {
+            width: 100%;
+            height: 800px;
+        }
+
+        .download-buttons {
+            background: white;
+            padding: 15px;
+            border-radius: 10px;
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+        }
+
+        .download-btn {
+            padding: 10px 20px;
+            background: #2196F3;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .download-btn:hover {
+            background: #1976D2;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>ROF GUI</h1>
+
+        <div class="drop-zone" id="dropZone">
+            <div class="drop-zone-text">Drop a media file here or click to browse</div>
+            <div class="drop-zone-subtext">Supports video and audio files</div>
+        </div>
+        <input type="file" id="fileInput" accept="video/*,audio/*">
+
+        <div class="rof-controls" id="rofControls">
+            <div class="rof-controls-header" id="rofControlsHeader">
+                <h3>Detection Parameters</h3>
+                <span class="rof-controls-toggle" id="rofControlsToggle">▼</span>
+            </div>
+            <div class="rof-controls-content" id="rofControlsContent">
+                <div class="rof-controls-inner">
+                    <div class="control-group">
+                        <label for="peakThreshold">Peak Threshold (Standard Deviations)</label>
+                        <input type="number" id="peakThreshold" value="1.2" step="0.1" min="0.1" max="5">
+                        <small>Lower values = more sensitive (default: 1.2)</small>
+                    </div>
+                    <div class="control-group">
+                        <label for="minShotSpacing">Minimum Shot Spacing (seconds)</label>
+                        <input type="number" id="minShotSpacing" value="0.05" step="0.01" min="0.01" max="1">
+                        <small>Maximum ~1200 RPM at 0.05s (default: 0.05)</small>
+                    </div>
+                    <div class="control-group">
+                        <label for="burstGapThreshold">Burst Gap Threshold (seconds)</label>
+                        <input type="number" id="burstGapThreshold" value="0.2" step="0.05" min="0.05" max="2">
+                        <small>Maximum gap within a burst for automatic fire (default: 0.2)</small>
+                    </div>
+                    <div class="control-group">
+                        <label for="windowSize">Window Size (seconds)</label>
+                        <input type="number" id="windowSize" value="0.002" step="0.001" min="0.001" max="0.01">
+                        <small>Envelope smoothing window, smaller preserves transients (default: 0.002)</small>
+                    </div>
+                    <div class="control-group">
+                        <label for="minPeakProminence">Minimum Peak Prominence</label>
+                        <input type="number" id="minPeakProminence" value="0.1" step="0.01" min="0.01" max="1">
+                        <small>Relative to max signal, higher = sharper peaks only (default: 0.1)</small>
+                    </div>
+                    <div class="control-group">
+                        <label for="minBurstCount">Minimum Burst Count (shots)</label>
+                        <input type="number" id="minBurstCount" value="5" step="1" min="1" max="50">
+                        <small>Filter out bursts with fewer shots (default: 5)</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <div id="loadingText">Loading FFmpeg...</div>
+        </div>
+
+        <div class="error" id="error"></div>
+
+        <div class="rof-results" id="rofResults">
+            <div class="rof-summary" id="rofSummary"></div>
+
+            <div class="visualization">
+                <h3>Visualization</h3>
+                <div id="rofPlot"></div>
+            </div>
+
+            <div class="rof-bursts" id="rofBursts"></div>
+
+            <div class="download-buttons">
+                <button class="download-btn" id="downloadJson">Download JSON Results</button>
+                <button class="download-btn" id="downloadPng">Download Visualization (PNG)</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+</body>
+</html>

@@ -3,6 +3,7 @@ import { copyFileSync, readFileSync } from 'fs';
 import { resolve } from 'path';
 
 export default defineConfig({
+  base: '/rof-gui/',
   server: {
     headers: {
       'Cross-Origin-Opener-Policy': 'same-origin',

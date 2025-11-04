@@ -2,6 +2,8 @@ import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { toBlobURL } from '@ffmpeg/util';
 import { RateOfFireDetector } from './rof-detector.js';
 import { ROFVisualizer } from './visualizer.js';
+import coreURL from '@ffmpeg/core?url';
+import wasmURL from '@ffmpeg/core/wasm?url';
 
 const dropZone = document.getElementById('dropZone');
 const fileInput = document.getElementById('fileInput');
@@ -29,6 +31,7 @@ const minPeakProminenceInput = document.getElementById('minPeakProminence');
 const minBurstCountInput = document.getElementById('minBurstCount');
 
 let ffmpeg = null;
+let ffmpegLoadPromise = null;
 let currentResults = null;
 let visualizer = null;
 let currentFile = null;
@@ -37,25 +40,30 @@ let reanalysisTimeout = null;
 async function loadFFmpeg() {
   if (ffmpeg?.loaded) return;
 
-  try {
-    loadingText.textContent = 'Loading FFmpeg...';
-    loading.classList.add('active');
+  // If already loading, return the existing promise
+  if (ffmpegLoadPromise) return ffmpegLoadPromise;
 
-    ffmpeg = new FFmpeg();
+  ffmpegLoadPromise = (async () => {
+    try {
+      ffmpeg = new FFmpeg();
 
-    const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm';
-    await ffmpeg.load({
-      coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
-      wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
-    });
+      await ffmpeg.load({
+        coreURL: await toBlobURL(coreURL, 'text/javascript'),
+        wasmURL: await toBlobURL(wasmURL, 'application/wasm'),
+      });
+    } catch (err) {
+      ffmpegLoadPromise = null; // Reset on error so it can be retried
+      throw err;
+    }
+  })();
 
-    loading.classList.remove('active');
-  } catch (err) {
-    showError('Failed to load FFmpeg: ' + err.message);
-    loading.classList.remove('active');
-    throw err;
-  }
+  return ffmpegLoadPromise;
 }
+
+// Start loading FFmpeg immediately on page load
+loadFFmpeg().catch(err => {
+  console.error('Failed to preload FFmpeg:', err);
+});
 
 async function handleFile(file) {
   if (!file) return;
@@ -63,6 +71,12 @@ async function handleFile(file) {
   currentFile = file;
 
   try {
+    // Show loading spinner if FFmpeg isn't ready yet
+    if (!ffmpeg?.loaded) {
+      loadingText.textContent = 'Loading FFmpeg...';
+      loading.classList.add('active');
+    }
+
     await loadFFmpeg();
 
     loadingText.textContent = 'Analyzing file...';

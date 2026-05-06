@@ -1,6 +1,6 @@
 # ROF GUI
 
-A browser-based tool for measuring **rate of fire** from audio or video recordings of automatic-weapon fire. Drop a clip, get cyclic RPM, per-burst rates, and an interactive timeline. Everything runs locally — your media never leaves the browser.
+A browser-based tool for measuring **rate of fire** from audio or video recordings of gunfire. Drop a clip, get cyclic RPM, per-burst rates, and an interactive timeline. Everything runs locally — your media never leaves the browser.
 
 ## Live application
 

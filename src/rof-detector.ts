@@ -1,6 +1,6 @@
 /**
  * Rate-of-Fire Detector. Analyzes audio to detect gunshots and calculate
- * rate-of-fire for automatic weapons. Audio extraction is decoupled from
+ * cyclic rate of fire. Audio extraction is decoupled from
  * analysis — the same detector runs in the browser (via ffmpeg.wasm) and
  * in Node (via the ffmpeg CLI in the test runner).
  */
@@ -211,7 +211,7 @@ export class RateOfFireDetector implements DetectorParams {
   }
 
   /**
-   * Refine each burst by amplitude coherence: real automatic-fire bursts
+   * Refine each burst by amplitude coherence: real bursts of gunfire
    * have peaks of similar intensity ("dakka"), so the burst should reduce
    * to the longest contiguous run of strong peaks. A peak is "strong" if
    * its envelope value is at least `ratio` of the burst's loudest peak.
@@ -332,7 +332,7 @@ export class RateOfFireDetector implements DetectorParams {
    * Reject "bursts" that don't actually look like dakka. A real burst has
    * tight cadence regularity AND uniform peak intensity; spurious clusters
    * (handling, dropped brass, voices) have neither. The interval test is
-   * the decisive one — automatic fire is mechanically periodic to within a
+   * the decisive one — cyclic gunfire is mechanically periodic to within a
    * few percent. The amplitude test catches clusters of unrelated transients
    * that happen to land within a gap-threshold of each other.
    *
@@ -348,7 +348,7 @@ export class RateOfFireDetector implements DetectorParams {
   } = {}): void {
     if (!this.envelope) return;
     // Tight cadence (low intervalDispersion) is the strongest evidence
-    // of mechanical periodicity — automatic fire is essentially never
+    // of mechanical periodicity — cyclic gunfire is essentially never
     // off by more than a few percent in inter-shot interval.
     //
     // Amplitude dispersion is a secondary signal; real bursts often have

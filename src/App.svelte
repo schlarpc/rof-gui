@@ -147,10 +147,25 @@
 
   .topbar {
     display: flex;
+    flex-wrap: wrap;
+    row-gap: 12px;
     justify-content: space-between;
     align-items: center;
     padding-bottom: 16px;
     border-bottom: 1px solid var(--border);
+  }
+
+  @media (max-width: 640px) {
+    .topbar-meta {
+      width: 100%;
+      justify-content: space-between;
+    }
+    .filename {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
   }
 
   .brand {

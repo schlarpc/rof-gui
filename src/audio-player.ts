@@ -58,7 +58,10 @@ export class WebAudioPlayer {
 
   get currentTime(): number {
     if (!this.audioBuffer) return 0;
-    if (this.playing && this.context) {
+    // `source` is set only after the buffer has actually been started — between
+    // play() and resume() resolving on iOS, `playing` is true but `startedAt`
+    // is still stale, so we fall through to `offset` until playback truly begins.
+    if (this.playing && this.source && this.context) {
       return Math.min(this.duration, this.offset + (this.context.currentTime - this.startedAt));
     }
     return this.offset;
@@ -80,31 +83,50 @@ export class WebAudioPlayer {
       this.offset = 0;
       this.emit('timeupdate');
     }
-    if (this.context.state === 'suspended') void this.context.resume();
 
-    const src = this.context.createBufferSource();
-    src.buffer = this.audioBuffer;
-    src.connect(this.context.destination);
-    src.onended = () => {
-      if (!this.playing) return; // stopped via stop()
-      this.playing = false;
-      this.offset = this.duration;
-      if (this.timeupdateInterval) {
-        clearInterval(this.timeupdateInterval);
-        this.timeupdateInterval = null;
-      }
-      this.emit('timeupdate');
-      this.emit('ended');
-      this.emit('pause');
+    // Mark playing immediately so re-entrant clicks during the resume await
+    // are ignored, and emit `play` so the UI updates without waiting.
+    this.playing = true;
+    this.emit('play');
+
+    // iOS Safari only produces audio once the context has actually reached
+    // 'running'. Calling start() while still suspended yields silence, so
+    // we initiate resume() synchronously (preserving the user-gesture token)
+    // and start the source after it resolves. We capture `playing` so a
+    // pause/stop racing the resume cancels the start.
+    const startSource = (): void => {
+      if (!this.audioBuffer || !this.context || !this.playing) return;
+      const src = this.context.createBufferSource();
+      src.buffer = this.audioBuffer;
+      src.connect(this.context.destination);
+      src.onended = () => {
+        if (!this.playing) return; // stopped via stop()
+        this.playing = false;
+        this.offset = this.duration;
+        if (this.timeupdateInterval) {
+          clearInterval(this.timeupdateInterval);
+          this.timeupdateInterval = null;
+        }
+        this.emit('timeupdate');
+        this.emit('ended');
+        this.emit('pause');
+      };
+      src.start(0, this.offset);
+      this.source = src;
+      this.startedAt = this.context.currentTime;
+      this.timeupdateInterval = setInterval(() => this.emit('timeupdate'), 50);
     };
 
-    src.start(0, this.offset);
-    this.source = src;
-    this.startedAt = this.context.currentTime;
-    this.playing = true;
-
-    this.timeupdateInterval = setInterval(() => this.emit('timeupdate'), 50);
-    this.emit('play');
+    if (this.context.state === 'suspended') {
+      this.context.resume().then(startSource, () => {
+        // Resume rejected (autoplay policy, etc.) — roll back the play state.
+        if (!this.playing) return;
+        this.playing = false;
+        this.emit('pause');
+      });
+    } else {
+      startSource();
+    }
   }
 
   pause(): void {

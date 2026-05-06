@@ -3,6 +3,13 @@
  * samples on hand from the analysis pipeline, so we avoid HTML5 <audio> and
  * the range-request quirks of blob URLs.
  *
+ * On iOS, raw Web Audio output is treated as the "Ambient" audio category,
+ * which the silent switch mutes. To get the standard "Media" category
+ * (volume-controlled but not silenced by the ringer switch), we route the
+ * AudioContext through a MediaStreamAudioDestinationNode and feed an
+ * <audio> element from it. Browsers without that node fall back to
+ * connecting directly to context.destination.
+ *
  * Mimics the slice of HTMLAudioElement we actually use: play, pause,
  * currentTime, duration, plus play/pause/ended/timeupdate/loadedmetadata
  * callbacks.
@@ -18,6 +25,8 @@ interface WebkitAudioWindow {
 
 export class WebAudioPlayer {
   private context: AudioContext | null = null;
+  private streamDest: MediaStreamAudioDestinationNode | null = null;
+  private mediaEl: HTMLAudioElement | null = null;
   private audioBuffer: AudioBuffer | null = null;
   private source: AudioBufferSourceNode | null = null;
   private startedAt = 0; // context time when current playback started
@@ -40,6 +49,17 @@ export class WebAudioPlayer {
       const Ctor = window.AudioContext || (window as unknown as WebkitAudioWindow).webkitAudioContext;
       if (!Ctor) throw new Error('Web Audio API unavailable');
       this.context = new Ctor();
+      // Feed an off-DOM <audio> element from the context so iOS classifies
+      // playback as Media (plays through the silent switch, still respects
+      // the volume slider). Older browsers without MediaStream support fall
+      // back to direct connection in `output()`.
+      if (typeof this.context.createMediaStreamDestination === 'function') {
+        this.streamDest = this.context.createMediaStreamDestination();
+        const audio = document.createElement('audio');
+        audio.playsInline = true;
+        audio.srcObject = this.streamDest.stream;
+        this.mediaEl = audio;
+      }
     }
     const buffer = this.context.createBuffer(1, audioData.length, sampleRate);
     // TS lib has Float32Array<ArrayBuffer> here; our parameter is the more
@@ -50,6 +70,11 @@ export class WebAudioPlayer {
     this.startedAt = 0;
     this.emit('loadedmetadata');
     this.emit('timeupdate');
+  }
+
+  private output(): AudioNode {
+    if (!this.context) throw new Error('AudioContext not initialized');
+    return this.streamDest ?? this.context.destination;
   }
 
   get duration(): number {
@@ -92,13 +117,22 @@ export class WebAudioPlayer {
     // iOS Safari only produces audio once the context has actually reached
     // 'running'. Calling start() while still suspended yields silence, so
     // we initiate resume() synchronously (preserving the user-gesture token)
-    // and start the source after it resolves. We capture `playing` so a
-    // pause/stop racing the resume cancels the start.
+    // and start the source after it resolves. The <audio>.play() call must
+    // also happen synchronously here so iOS attributes the Media category
+    // promotion to this user gesture. We capture `playing` so a pause/stop
+    // racing these promises cancels the start.
+    const mediaPromise: Promise<unknown> = this.mediaEl
+      ? this.mediaEl.play().catch(() => {/* element pause races, etc. */})
+      : Promise.resolve();
+    const resumePromise: Promise<unknown> = this.context.state === 'suspended'
+      ? this.context.resume()
+      : Promise.resolve();
+
     const startSource = (): void => {
       if (!this.audioBuffer || !this.context || !this.playing) return;
       const src = this.context.createBufferSource();
       src.buffer = this.audioBuffer;
-      src.connect(this.context.destination);
+      src.connect(this.output());
       src.onended = () => {
         if (!this.playing) return; // stopped via stop()
         this.playing = false;
@@ -117,16 +151,13 @@ export class WebAudioPlayer {
       this.timeupdateInterval = setInterval(() => this.emit('timeupdate'), 50);
     };
 
-    if (this.context.state === 'suspended') {
-      this.context.resume().then(startSource, () => {
-        // Resume rejected (autoplay policy, etc.) — roll back the play state.
-        if (!this.playing) return;
-        this.playing = false;
-        this.emit('pause');
-      });
-    } else {
-      startSource();
-    }
+    Promise.all([resumePromise, mediaPromise]).then(startSource, () => {
+      // Resume rejected (autoplay policy, etc.) — roll back the play state.
+      if (!this.playing) return;
+      this.playing = false;
+      this.mediaEl?.pause();
+      this.emit('pause');
+    });
   }
 
   pause(): void {
@@ -148,6 +179,7 @@ export class WebAudioPlayer {
       clearInterval(this.timeupdateInterval);
       this.timeupdateInterval = null;
     }
+    this.mediaEl?.pause();
     this.playing = false;
     if (emit) this.emit('pause');
   }

@@ -352,11 +352,14 @@ export function scheduleReanalysis(): void {
 }
 
 export function addAnalysisRegion(region: AnalysisRegion): void {
+  const wasEmpty = app.analysisRegions.length === 0;
   const merged = mergeRegions([...app.analysisRegions, region]);
   app.analysisRegions = merged;
-  // Park the cursor at the new region's start so pressing play immediately
-  // hears what's being analyzed.
-  seekTo(region.start);
+  // For the first region, park the cursor at its start so pressing play
+  // immediately hears what's being analyzed. For subsequent regions, leave
+  // the cursor alone so the user isn't yanked away from the part of the
+  // clip they're currently inspecting.
+  if (wasEmpty) seekTo(region.start);
   scheduleReanalysis();
 }
 

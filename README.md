@@ -1,119 +1,83 @@
 # ROF GUI
 
-A browser-based tool for analyzing rate-of-fire (ROF) from audio and video files. This application uses digital signal processing to detect gunshot peaks, calculate firing rates, and identify burst patterns in automatic weapon fire.
+A browser-based tool for measuring **rate of fire** from audio or video recordings of automatic-weapon fire. Drop a clip, get cyclic RPM, per-burst rates, and an interactive timeline. Everything runs locally — your media never leaves the browser.
 
-## 🔗 Live Application
+## Live application
 
-Access the analyzer at: **https://schlarpc.github.io/rof-gui/**
+**https://schlarpc.github.io/rof-gui/**
 
 ## Features
 
-- **Client-side processing** - All analysis runs locally in your browser using WebAssembly
-- **Audio extraction** - Automatically extracts audio from video files using FFmpeg.js
-- **Peak detection** - Identifies individual gunshots using adaptive thresholding and signal processing
-- **Burst analysis** - Groups shots into bursts and calculates rate-of-fire statistics
-- **Interactive visualization** - Multi-panel Plotly charts showing waveform, envelope, and burst timeline
-- **Adjustable parameters** - Fine-tune detection sensitivity with real-time reanalysis
-- **Export capabilities** - Download results as JSON or save visualizations as PNG
+- **Client-side** — all decoding, DSP, and analysis run in the browser via WebAssembly. No uploads.
+- **Auto-tuning detector** — estimates the cyclic period via autocorrelation, builds a per-recording shot template, and matched-filter detects shots. Adapts to supersonic/subsonic, suppressed/open, near/distant recordings without manual knobs.
+- **Multiband shotness gating** — broadband-impulse score (geometric mean of LF and HF envelopes, each per-recording-normalized) rejects narrowband artifacts: brass clinks, distant thumps, reverberant tails.
+- **Burst grouping** — gap-based clustering refined by amplitude coherence, cadence, and quality (interval / amplitude dispersion). Cadence-extension recovers shots whose envelope fell below the matched-filter threshold.
+- **Interactive timeline** — canvas-based view with envelope / waveform / spectrogram modes, shot ticks, burst spans, drag-to-select analysis regions, click-to-seek playback.
+- **Exports** — shareable PNG result card, full timeline plot PNG, raw analysis JSON.
 
-## How It Works
+## How it works
 
-The detector processes audio through several stages:
+The pipeline runs in an off-thread Web Worker so the UI stays responsive:
 
-1. **Audio Extraction** - Converts input media to mono 44.1kHz WAV using FFmpeg
-2. **Envelope Calculation** - Computes audio envelope with minimal smoothing to preserve sharp transients
-3. **Peak Detection** - Identifies gunshot peaks using adaptive thresholding based on signal statistics
-4. **Burst Grouping** - Clusters shots into bursts based on inter-shot timing gaps
-5. **Rate Analysis** - Calculates RPM (rounds per minute) for each burst and overall statistics
+1. **Audio extraction** — ffmpeg.wasm decodes the input to mono 48 kHz f32 PCM.
+2. **Envelope** — short-window |·| smoothing.
+3. **Period estimation** — autocorrelation of the onset signal of a smoothed envelope, with explicit harmonic-confusion checks (sub-harmonic and sub-period); cross-checked against an interval-histogram estimator.
+4. **Shotness** — per-sample broadband-impulse score; geometric mean of LF/HF envelopes normalized by their own 95th percentiles.
+5. **Matched-filter detection** — seed peaks → average shot template → cross-correlate envelope → adaptive-threshold peaks; gated by regional energy and shotness.
+6. **Burst grouping & refinement** — gap-clustered, then amplitude-coherence, cadence-edge, and quality filters; cadence-extension recovers tail shots.
+7. **Reporting** — per-burst RPM, headline cyclic rate (median of pooled inter-shot intervals), 95% CI, plus mean/median/min/max/std across bursts.
 
-## Detection Parameters
-
-The tool provides several adjustable parameters:
-
-- **Peak Threshold** - Sensitivity for shot detection (in standard deviations above mean)
-- **Minimum Shot Spacing** - Prevents double-counting rapid peaks (supports up to ~1200 RPM)
-- **Burst Gap Threshold** - Maximum gap between shots within a burst
-- **Window Size** - Envelope smoothing window (smaller preserves transients)
-- **Minimum Peak Prominence** - Filters out low-amplitude peaks relative to signal max
-- **Minimum Burst Count** - Filters out bursts with too few shots
+Algorithm details live in the per-method docstrings in [`src/rof-detector.ts`](src/rof-detector.ts) and [`src/auto-tune.ts`](src/auto-tune.ts).
 
 ## Building
 
-### With Nix (Recommended)
+### With Nix (matches CI)
 
 ```bash
-# Development environment
-direnv allow  # enables automatic nix develop shell
-npm run dev   # starts development server
-
-# Production build
-nix build
+direnv allow   # enables automatic nix develop shell
+npm run dev    # starts development server
+nix build      # production build → result/
 ```
 
-### With Node.js/npm
+### With Node.js
 
 ```bash
-# Install dependencies
 npm install
-
-# Development server
-npm run dev
-
-# Production build
-npm run build
-
-# Preview production build
-npm run preview
+npm run dev      # development server
+npm run build    # production build → dist/
+npm run preview  # preview production build
 ```
 
-## Development
+## Project layout
 
-The project uses:
-- **Vite** - Fast build tool and development server
-- **FFmpeg.js** - WebAssembly-based audio extraction
-- **Plotly.js** - Interactive charting library
-- **Custom DSP** - Pure JavaScript signal processing implementations
+```
+src/
+  app.ts                     # entrypoint: mounts the Svelte root
+  App.svelte                 # top-level component, drag/paste handling
+  state.svelte.ts            # shared app state, ffmpeg + worker glue
+  analysis-worker.ts         # off-thread detector + spectrogram
+  rof-detector.ts            # detector pipeline (envelope → bursts → rates)
+  auto-tune.ts               # period estimation, shotness, matched filter
+  signal-processing.ts       # numpy/scipy-style primitives
+  audio-player.ts            # Web Audio playback wrapper
+  exports.ts, result-card.ts # PNG/JSON download helpers
+  components/                # Svelte UI components
+test/
+  test-runner.ts             # CLI validation harness
+  debug-*.ts, render-plot.ts # algorithm-tuning aids
+```
 
-### Project Structure
+## Test corpus
 
-- `src/main.js` - Main application logic and UI handling
-- `src/rof-detector.js` - Core rate-of-fire detection algorithm
-- `src/signal-processing.js` - Signal processing utilities (peak detection, convolution, statistics)
-- `src/visualizer.js` - Plotly-based visualization engine
-- `index.html` - Single-page application with embedded styles
-- `flake.nix` - Nix build configuration for reproducible builds
-- `vectors/` - Test audio samples
+`npm run test` runs the detector against the `test-corpus/validation/` set and reports per-file error and aggregate stats. `npm run test:all` includes the larger `test-corpus/test/` set used for regression tracking.
 
-## Algorithm Details
+The `test-corpus/` directory is tracked via [Git LFS](https://git-lfs.com); install LFS before cloning if you want to run the validator. Ground truth is encoded in filenames as `_<rpm>rpm.flac` (or `_<rpm>rpm_<rounds>rds.flac` when shot count is also known). Compare against a saved baseline with `--baseline=test/baseline-validation.json`.
 
-### Peak Detection
+## Privacy & security
 
-Uses a reimplementation of scipy's `find_peaks` with:
-- Height-based filtering (adaptive threshold)
-- Minimum distance enforcement (prevents double-counting)
-- Prominence calculation (rejects low-amplitude peaks)
-
-### Burst Classification
-
-Shots are grouped into bursts when:
-- Inter-shot intervals are below the burst gap threshold
-- The burst contains at least the minimum number of shots
-
-### Rate Calculation
-
-ROF is calculated as: `RPM = (shots - 1) / duration * 60`
-
-The tool reports:
-- Per-burst rates
-- Overall rate across all shots
-- Mean, median, min, max, and standard deviation of burst rates
-
-## Privacy & Security
-
-- All processing happens locally in your browser
-- No files are uploaded to external servers
-- Uses SharedArrayBuffer for FFmpeg.js (requires COOP/COEP headers)
+- No file ever leaves the browser. All decoding and analysis run locally.
+- ffmpeg.wasm requires `SharedArrayBuffer`, so the page is served with `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: credentialless`.
 
 ## License
 
-This project is licensed under the AGPL-3.0-or-later license. See the LICENSE file for details.
+[AGPL-3.0-or-later](LICENSE).

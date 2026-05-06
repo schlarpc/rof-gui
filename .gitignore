@@ -3,4 +3,6 @@
 /.direnv
 /result
 /dist
+/plot_*.png
+/plot_*.svg
 

@@ -16,6 +16,7 @@
 
 import { RateOfFireDetector } from './rof-detector.js';
 import type { AnalysisResult, DetectorParams } from './rof-detector.js';
+import * as signal from './signal-processing.js';
 
 export interface SetAudioRequest {
   id: number;
@@ -110,7 +111,11 @@ self.onmessage = (e: MessageEvent<WorkerRequest>) => {
         self.postMessage(progress);
       };
       const results = det.runAnalysis(onProgress);
-      const envelope = det.envelope ? new Float32Array(det.envelope) : new Float32Array(0);
+      // Display envelope is computed on the *unmasked* audio so that the
+      // timeline still shows signal outside selected analysis regions —
+      // important when the user is dragging out additional regions. The
+      // detector's internal envelope is masked and used only for analysis.
+      const envelope = computeDisplayEnvelope(cachedAudio, cachedSampleRate, det.windowSize);
       results.envelope = envelope;
       results.sampleRate = det.sampleRate;
       const reply: AnalyzedResponse = { id: msg.id, type: 'analyzed', results };
@@ -137,6 +142,15 @@ self.onmessage = (e: MessageEvent<WorkerRequest>) => {
     self.postMessage(reply);
   }
 };
+
+// Smoothed |audio| envelope for display, mirroring `RateOfFireDetector.calculateEnvelope`.
+function computeDisplayEnvelope(audio: Float32Array, sampleRate: number, windowSize: number): Float32Array {
+  const windowSamples = Math.max(Math.floor(windowSize * sampleRate), 1);
+  const absAudio = signal.abs(audio);
+  if (windowSamples <= 1) return new Float32Array(absAudio);
+  const window = signal.divide(signal.ones(windowSamples), windowSamples);
+  return new Float32Array(signal.convolve(absAudio, window, 'same'));
+}
 
 // --- STFT spectrogram ---
 // Magnitude is log-scaled then quantized to Uint8 with min/max as the
